@@ -1,0 +1,261 @@
+PROJECT: ECOTRON INFRASTRUCTURE – SERVICE INTEGRATION SPEC
+
+==================================================
+1. PURPOSE
+==================================================
+This document defines how any NEW SERVICE must be
+implemented so that it integrates correctly with:
+
+- Docker-based deployment
+- Traefik reverse proxy
+- Shared volume system
+- GitHub Actions CI/CD
+- Existing services:
+  - ecotronlanding (port 80)
+  - metube (port 8081)
+
+This spec ensures compatibility, scalability, and
+zero-conflict integration.
+
+==================================================
+2. CORE ARCHITECTURE
+==================================================
+
+All services follow:
+
+User → Cloudflare → Traefik → Docker Network → Services
+
+Key components:
+
+- Reverse Proxy: Traefik
+- Network: traefik (shared)
+- Volume root: /root/volumes/
+
+==================================================
+3. DOCKER REQUIREMENTS
+==================================================
+
+Every new service MUST:
+
+1. Use Docker (Dockerfile required)
+2. Run as a single container
+3. Expose an internal port (no host port binding)
+4. Use a deterministic startup command
+
+Example:
+
+------------------------------------------
+Dockerfile
+------------------------------------------
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+
+CMD ["python", "main.py"]
+------------------------------------------
+
+==================================================
+4. DOCKER-COMPOSE RULES
+==================================================
+
+Each service has its own docker-compose.yml
+
+MANDATORY RULES:
+
+- MUST join shared network:
+  networks:
+    - traefik
+
+- MUST NOT expose ports via `ports:` unless debugging
+
+- MUST define restart policy:
+  restart: unless-stopped
+
+- SHOULD disable broken healthchecks or define correct ones
+
+------------------------------------------
+Template
+------------------------------------------
+services:
+  service-name:
+    build: .
+    container_name: service-name
+    restart: unless-stopped
+
+    networks:
+      - traefik
+
+    volumes:
+      - /root/volumes/<service-name>:/data
+
+networks:
+  traefik:
+    external: true
+------------------------------------------
+
+==================================================
+5. TRAEFIK INTEGRATION
+==================================================
+
+ONLY required if service needs external access.
+
+MANDATORY LABELS:
+
+- "traefik.enable=true"
+- "traefik.docker.network=traefik"
+
+Router config:
+
+- "traefik.http.routers.<name>.rule=Host(`<subdomain>.ecotron.co.in`)"
+- "traefik.http.routers.<name>.entrypoints=websecure"
+- "traefik.http.routers.<name>.tls.certresolver=myresolver"
+
+Service port:
+
+- "traefik.http.services.<name>.loadbalancer.server.port=<internal-port>"
+
+------------------------------------------
+Example
+------------------------------------------
+labels:
+  - "traefik.enable=true"
+  - "traefik.docker.network=traefik"
+  - "traefik.http.routers.myservice.rule=Host(`api.ecotron.co.in`)"
+  - "traefik.http.routers.myservice.entrypoints=websecure"
+  - "traefik.http.routers.myservice.tls.certresolver=myresolver"
+  - "traefik.http.services.myservice.loadbalancer.server.port=5000"
+------------------------------------------
+
+==================================================
+6. INTERNAL SERVICE COMMUNICATION
+==================================================
+
+Services communicate via Docker DNS:
+
+- http://ecotronlanding:80
+- http://metube:8081
+
+RULES:
+
+- NEVER use localhost between containers
+- NEVER use public domain internally
+- ALWAYS use container name
+
+==================================================
+7. SHARED STORAGE (CRITICAL)
+==================================================
+
+Global volume root:
+
+/root/volumes/
+
+Each service MUST use its own folder:
+
+/root/volumes/<service-name>/
+
+Shared data between services must use same path.
+
+Example:
+
+- metube uses:
+  /root/volumes/metube/downloads
+
+New services MUST mount same volume if sharing data.
+
+==================================================
+8. CI/CD INTEGRATION
+==================================================
+
+Each service repo must include:
+
+.github/workflows/deploy.yml
+
+Deployment flow:
+
+1. Push to main branch
+2. GitHub Actions:
+   - SSH into server
+   - cd /root/<repo>
+   - git pull
+   - docker compose up -d --build
+
+Secrets required:
+
+- SSH_PRIVATE_KEY
+- SERVER_IP
+- SERVER_USER
+
+==================================================
+9. NAMING CONVENTIONS
+==================================================
+
+Container name:
+- must match service name
+
+Router name:
+- must be unique across system
+
+Volume folder:
+- must match service name
+
+Subdomain:
+- <service>.ecotron.co.in
+
+==================================================
+10. ERROR HANDLING RULES
+==================================================
+
+Understand failure types:
+
+- 404 → Traefik router not matching
+- 502 → Backend container unreachable
+- SSL error → certificate issue (ACME / Cloudflare)
+
+Service must:
+
+- log clearly to stdout
+- fail fast on startup issues
+- expose health endpoint if needed
+
+==================================================
+11. SECURITY BASELINE
+==================================================
+
+- No hardcoded credentials
+- Use environment variables
+- Avoid exposing ports directly
+- Prefer internal-only services unless required
+
+==================================================
+12. EXTENSIBILITY PRINCIPLES
+==================================================
+
+New services must:
+
+- be loosely coupled
+- communicate via network or shared volumes
+- avoid modifying existing services directly
+
+Preferred pattern:
+
+Producer Service → Shared Volume → Consumer Service
+
+==================================================
+13. VALIDATION CHECKLIST
+==================================================
+
+Before deployment:
+
+[ ] Container builds successfully
+[ ] Service reachable internally
+[ ] Correct network attached
+[ ] Traefik labels correct (if public)
+[ ] Volume paths correct
+[ ] CI/CD pipeline works
+[ ] No port conflicts
+
+==================================================
+END OF DOCUMENT
+==================================================

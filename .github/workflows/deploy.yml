@@ -1,0 +1,30 @@
+name: Deploy Browserless to Ecotron Server
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Use appropriate root path based on conventions
+            cd /root/browserless || cd /root/Browserless
+            git reset --hard
+            git pull origin main || git pull origin master
+            
+            # Restart the docker container with the new configuration
+            docker compose up -d --build

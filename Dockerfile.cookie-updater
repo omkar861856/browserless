@@ -1,0 +1,14 @@
+FROM ghcr.io/browserless/chromium:latest
+
+USER root
+
+# Copy our script and custom startup into the container
+COPY youtube-cookie-worker.js /app/youtube-cookie-worker.js
+COPY start-with-worker.sh /app/start-with-worker.sh
+
+RUN chmod +x /app/start-with-worker.sh
+
+USER blessuser
+
+# Override the default CMD with our custom script that runs both
+CMD ["/app/start-with-worker.sh"]

@@ -1,0 +1,31 @@
+services:
+  browserless:
+    build:
+      context: .
+      dockerfile: Dockerfile.cookie-updater
+    container_name: browserless
+    restart: unless-stopped
+    environment:
+      # Use same workspace across restarts to persist the "one-time manual login"
+      - WORKSPACE_DIR=/workspace
+      # Provide generous timeout for manual interactions or script execution
+      - CONNECTION_TIMEOUT=600000
+    networks:
+      - traefik
+    volumes:
+      # Persist manual logins/profiles for Browserless
+      - /root/volumes/browserless/workspace:/workspace
+      # Map the metube downloads path to where the cookie worker saves cookies.txt
+      - /root/volumes/metube/downloads:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      # Expose browserless interface on browserless.ecotron.co.in
+      - "traefik.http.routers.browserless.rule=Host(`browserless.ecotron.co.in`)"
+      - "traefik.http.routers.browserless.entrypoints=websecure"
+      - "traefik.http.routers.browserless.tls.certresolver=myresolver"
+      - "traefik.http.services.browserless.loadbalancer.server.port=3000"
+
+networks:
+  traefik:
+    external: true
